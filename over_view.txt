@@ -1,0 +1,29 @@
+1. ⚙️ Project Architecture: The Asynchronous Core
+
+The foundation of your project is designed to be fast and fail-safe, separating the user interface from the heavy computation.PhaseTechnologyPurposeFrontend/APIDjango REST Framework (DRF)Ingestion: Receives the uploaded image file (via POST /api/upload/).QueueingCeleryAsynchrony: Immediately offloads the heavy work to the background, ensuring the web response is instant.Message BrokerRedisQueue: Acts as the high-speed communication channel where the Celery task ID is temporarily stored until a worker is available.WorkerCelery WorkerExecution: Listens to the Redis queue, picks up the task, and executes the entire processing pipeline defined in core/tasks.py.
+
+2. 🧠 The Processing Pipeline (The process_image_pipeline Task)
+
+This task executes the image analysis in a strict, ordered flow.
+
+A. Gatekeeping and Initial Data Capture
+StepModel/TechnologyPurposeValidate ImagePillow / Python OSPruning: Checks if the file is readable, a valid format, and meets minimum size requirements. If it fails here, the task stops immediately.Human DetectionMediaPipe Pose LandmarkerFilter: Checks for the presence of a human subject (if pose_landmarks are found). If no body is detected, the image is tagged as REJECTED.Get Dimensionsget_image_dimensions (Helper)Calibration: Gets the original image width ($w$) and height ($h$) in pixels, which is essential for converting the model's normalized coordinates (0.0 to 1.0) into usable pixel coordinates.
+
+B. Core Extraction and Asset Creation
+StepModel/TechnologyPurposePose Keypoints & BBoxMediaPipe Pose LandmarkerCore Data: Extracts the 33 keypoints (like Nose, Elbows, Knees) and uses these extreme points to calculate the overall Human Bounding Box and Detection Confidence.Background RemovalRembg (U-2-Net)Asset Cleanup: Creates a clean, ready-to-use digital asset (transparent PNG).Clothing MaskMediaPipe Multi-class SegmenterAnalysis Tool: Creates a precise binary mask showing only the clothing area, which is required for the next step.Refined Dominant ColorsScikit-learn (K-Means)Accuracy: Clusters only the pixels within the clothing mask. This prevents background colors (e.g., blue walls) from contaminating the final color output.
+
+C. Final Attributes and Data Saving
+StepModel/TechnologyPurposeAge/Sex EstimationOpenCV DNN (Caffe Models)Optional Data: Uses the calculated positions of the nose and eyes (from Pose Keypoints) to generate a tightly cropped image of the face, which is then classified for Estimated Age and Gender.Smart Error HandlingPython try/except + kombu.OperationalErrorResilience: Differentiates between transient errors (which trigger a retry) and permanent structural failures (which mark the task as FAILED immediately).Data OutputDjango ORMFinalization: Assembles all the results (BBox, Keypoints, Colors, Confidence, Age, Sex, Mask Path) into a comprehensive JSON Metadata field and saves the record as COMPLETED.
+
+
+Updated :
+
+1. Validate Image	    ✅ DONE	You use Pillow to check file types and dimensions (validate_image). Invalid files are rejected immediately.
+2. Detect Human Body	✅ DONE	You use MediaPipe Pose. If pose_landmarks is None, the task stops and marks the status as REJECTED.
+3. Remove Background	✅ DONE	You use Rembg. The code generates a transparent .png file saved in the media/processed folder.
+4. Extract Pose/BBox	✅ DONE	Your code extracts 33 skeleton keypoints and calculates a precise Bounding Box (bbox) from them.
+5. Dominant Colors  	✅ DONE	You use K-Means Clustering. Crucially, you achieved the "Refined" version by applying the clothing mask first, ensuring background colors are ignored.
+6. Clothing Mask	    ✅ DONE	You use MediaPipe Segmenter. The binary mask is generated and saved in media/masks.
+7. Age/Sex Estimation	✅ DONE	You successfully integrated DeepFace. You overcame the "bad crop" issues by fixing the BBox math and switching from the old Caffe model to modern Deep Learning.
+8. Output Metadata	    ✅ DONE	Your database saves a comprehensive JSON object containing: bbox, keypoints, dominant_colors, age, gender, and confidence.
+9. Async Celery Tasks	✅ DONE	The entire logic is wrapped in a @shared_task. You implemented Smart Retries (kombu.exceptions.OperationalError) to handle temporary failures without crashing.
